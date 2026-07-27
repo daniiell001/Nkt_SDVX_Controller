@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>手台 HID 检测 — 键盘 + AS5600 双编码器</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.3);
+      --success: #34d399;
+      --warning: #fbbf24;
+      --danger: #f87171;
+      --x-color: #f87171;
+      --y-color: #38bdf8;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1000px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    header {
+      text-align: center;
+      padding: 12px 0 4px;
+    }
+
+    header h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    header p {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-top: 4px;
+    }
+
+    /* === 模块布局 === */
+    .module-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+
+    .module {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    .module-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+
+    .module-header .dot-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .module-header .dot-indicator.off {
+      background: var(--text-muted);
+    }
+
+    .module-header .dot-indicator.on {
+      background: var(--success);
+      box-shadow: 0 0 6px var(--success);
+    }
+
+    .module-header .dot-indicator.warn {
+      background: var(--warning);
+      box-shadow: 0 0 6px var(--warning);
+    }
+
+    .module-body {
+      padding: 14px 16px;
+    }
+
+    /* === shared: badges, cards, buttons === */
+    .badge-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid var(--border);
+    }
+
+    .mini-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 8px;
+    }
+
+    .mini-card {
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .mini-card:hover {
+      border-color: var(--accent);
+      background: rgba(56, 189, 248, 0.06);
+    }
+
+    .mini-card .lbl {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+
+    .mini-card .val {
+      font-size: 1.1rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
+      margin-top: 4px;
+    }
+
+    button {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    button:hover {
+      border-color: var(--accent);
+      background: rgba(56, 189, 248, 0.1);
+    }
+
+    button.primary {
+      background: var(--accent);
+      color: #000;
+      border-color: var(--accent);
+    }
+
+    button.primary:hover {
+      opacity: 0.85;
+    }
+
+    button.danger:hover {
+      border-color: var(--danger);
+      color: var(--danger);
+      background: rgba(248, 113, 113, 0.1);
+    }
+
+    button:disabled {
+      opacity: 0.35;
+      pointer-events: none;
+    }
+
+    input[type=range] {
+      accent-color: var(--accent);
+    }
+
+    /* === 键盘输入区 === */
+    .kb-display {
+      background: rgba(15, 23, 42, 0.5);
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      min-height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      cursor: text;
+      outline: none;
+      margin-bottom: 10px;
+    }
+
+    .kb-display:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    #kbText {
+      font-size: 1.5rem;
+      font-weight: 600;
+      word-break: break-all;
+      text-align: center;
+      min-height: 1.6em;
+    }
+
+    #kbText.placeholder {
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .settings-row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .settings-row label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+
+    /* === 编码器可视化 === */
+    .encoder-viz {
+      display: flex;
+      gap: 28px;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 0;
+      flex-wrap: wrap;
+    }
+
+    .encoder-viz-right {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .crosshair-box {
+      position: relative;
+      width: 200px;
+      height: 200px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 2px solid var(--border);
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .crosshair-box canvas {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+    }
+
+    .crosshair-label {
+      position: absolute;
+      font-size: 0.6rem;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+
+    .crosshair-label.top {
+      top: 6px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    .crosshair-label.bottom {
+      bottom: 6px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    .crosshair-label.left {
+      left: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .crosshair-label.right {
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .angle-gauges {
+      display: flex;
+      gap: 18px;
+      flex-direction: column;
+    }
+
+    .gauge {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .gauge canvas {
+      border-radius: 50%;
+    }
+
+    .gauge .gname {
+      font-size: 0.7rem;
+      font-weight: 600;
+    }
+
+    .gauge .gval {
+      font-size: 0.75rem;
+      font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
+      color: var(--text-muted);
+    }
+
+    /* === 日志表格 === */
+    .log-wrap {
+      max-height: 320px;
+      overflow-y: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.75rem;
+    }
+
+    thead {
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+      z-index: 1;
+    }
+
+    th {
+      text-align: left;
+      padding: 7px 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-size: 0.65rem;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+    }
+
+    td {
+      padding: 6px 10px;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+      font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.72rem;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    kbd {
+      display: inline-block;
+      padding: 1px 5px;
+      font-size: 0.65rem;
+      font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+
+    <header>
+      <h1>手台 HID 全功能检测</h1>
+      <p>键盘输入 · AS5600 双编码器</p>
+    </header>
+
+    <!-- ================================================================ -->
+    <!-- 模块一：键盘 HID                                                 -->
+    <!-- ================================================================ -->
+    <div class="module" id="keyboardModule">
+      <div class="module-header">
+        <span class="dot-indicator off" id="kbDot"></span> 键盘 HID 输入
+      </div>
+      <div class="module-body">
+        <div class="badge-row">
+          <span class="badge"><span id="kbSourceLabel">来源: --</span></span>
+          <span class="badge">⚡ <span id="kbSpeedLabel">速度: --</span></span>
+        </div>
+        <div class="kb-display" id="kbDisplay" tabindex="0">
+          <span id="kbText" class="placeholder">点击此处开始捕获键盘 / 手台扫码输入…</span>
+        </div>
+        <div class="mini-cards">
+          <div class="mini-card">
+            <div class="lbl">最后按键</div>
+            <div class="val" id="kbLastKey">--</div>
+          </div>
+          <div class="mini-card">
+            <div class="lbl">Key Code</div>
+            <div class="val" id="kbLastCode">--</div>
+          </div>
+          <div class="mini-card">
+            <div class="lbl">间隔 (ms)</div>
+            <div class="val" id="kbLastIntv">--</div>
+          </div>
+          <div class="mini-card">
+            <div class="lbl">判定</div>
+            <div class="val" id="kbDetect">--</div>
+          </div>
+        </div>
+        <div class="settings-row" style="margin-top:10px;">
+          <span>HID 阈值:</span>
+          <input type="range" id="kbThresh" min="10" max="150" value="50" step="5" style="width:100px;">
+          <span id="kbThreshVal">50ms</span>
+          <label><input type="checkbox" id="kbBeep" checked>🔊 提示音</label>
+          <button class="danger" id="kbClear">清空键盘</button>
+          <button id="kbExport">导出 CSV</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- 模块二：编码器 HID（鼠标移动）                                    -->
+    <!-- ================================================================ -->
+    <div class="module" id="encoderModule">
+      <div class="module-header">
+        <span class="dot-indicator off" id="encDot"></span>AS5600 双编码器 (鼠标 HID)
+      </div>
+      <div class="module-body">
+        <div class="badge-row">
+          <span class="badge"><span style="color:var(--x-color);">●</span> X 轴: <span id="encXDelta">0</span></span>
+          <span class="badge"><span style="color:var(--y-color);">●</span> Y 轴: <span id="encYDelta">0</span></span>
+          <span class="badge">⏱ <span id="encPoll">0</span> Hz</span>
+        </div>
+        <div class="encoder-viz">
+          <div class="crosshair-box">
+            <canvas id="crosshairCanvas" width="200" height="200"></canvas>
+            <span class="crosshair-label top">Y+</span>
+            <span class="crosshair-label bottom">Y−</span>
+            <span class="crosshair-label left">X−</span>
+            <span class="crosshair-label right">X+</span>
+          </div>
+          <div class="encoder-viz-right">
+            <div class="angle-gauges">
+              <div class="gauge">
+                <span class="gname" style="color:var(--x-color);">X 编码器</span>
+                <canvas id="gaugeX" width="70" height="70"></canvas>
+                <span class="gval" id="gaugeXVal">0</span>
+              </div>
+              <div class="gauge">
+                <span class="gname" style="color:var(--y-color);">Y 编码器</span>
+                <canvas id="gaugeY" width="70" height="70"></canvas>
+                <span class="gval" id="gaugeYVal">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mini-cards">
+          <div class="mini-card">
+            <div class="lbl">累计 X</div>
+            <div class="val" id="encAccX">0</div>
+          </div>
+          <div class="mini-card">
+            <div class="lbl">累计 Y</div>
+            <div class="val" id="encAccY">0</div>
+          </div>
+          <div class="mini-card">
+            <div class="lbl">X 总移动</div>
+            <div class="val" id="encTotalX">0</div>
+          </div>
+          <div class="mini-card">
+            <div class="lbl">Y 总移动</div>
+            <div class="val" id="encTotalY">0</div>
+          </div>
+        </div>
+        <div class="btn-group" style="margin-top:10px;">
+          <button id="encReset">↺ 归零位置</button>
+          <button id="encLock" class="primary">🔒 锁定鼠标指针</button>
+          <button id="encClearLog" class="danger">清空日志</button>
+          <span style="font-size:0.7rem;color:var(--text-muted);margin-left:auto;">
+            💡 按 <kbd>Esc</kbd> 解锁指针
+          </span>
+        </div>
+        <div class="log-wrap" style="margin-top:8px; max-height:200px;">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>ΔX</th>
+                <th>ΔY</th>
+                <th>间隔ms</th>
+                <th>时间</th>
+              </tr>
+            </thead>
+            <tbody id="encLogBody">
+              <tr>
+                <td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px;">移动手台旋钮以捕获编码器数据…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <footer style="text-align:center;font-size:0.7rem;color:var(--text-muted);padding:4px 0 16px;">
+      💡 手台扫码枪按键间隔 &lt; 50ms · 手动打字 &gt; 80ms &nbsp;|&nbsp;
+      AS5600 编码器通过鼠标 HID (code.py) 输出 &nbsp;|&nbsp;
+      两个编码器分别控制 X / Y 轴
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      // ==================================================================
+      //  1. 键盘 HID 模块
+      // ==================================================================
+      (function () {
+        let entries = [], buf = '', lastTime = 0, currentBurst = [], burstTmr = null;
+        const BURST_TMO = 150;
+        const $disp = document.getElementById('kbDisplay');
+        const $text = document.getElementById('kbText');
+
+        function beep() {
+          if (!document.getElementById('kbBeep').checked) return;
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const o = ctx.createOscillator(), g = ctx.createGain();
+            o.connect(g); g.connect(ctx.destination);
+            o.frequency.value = 1800; o.type = 'square';
+            g.gain.setValueAtTime(0.06, ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
+            o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.06);
+          } catch (_) { }
+        }
+
+        function isHID(iv) { return iv > 0 && iv < parseInt(document.getElementById('kbThresh').value, 10); }
+
+        function finalize() {
+          if (!currentBurst.length) return;
+          const txt = currentBurst.join('');
+          const avg = currentBurst.length >= 2
+            ? entries.slice(-currentBurst.length + 1).reduce((s, e) => s + e.interval, 0) / (currentBurst.length - 1) : 999;
+          const hid = currentBurst.length >= 3 ? avg < parseInt(document.getElementById('kbThresh').value, 10)
+            : (currentBurst.length === 1 && entries.length && entries[entries.length - 1].interval < parseInt(document.getElementById('kbThresh').value, 10));
+          $text.textContent = txt || '(空)';
+          $text.classList.remove('placeholder');
+          if (hid && txt) {
+            document.getElementById('kbSourceLabel').textContent = '来源: HID 设备';
+            document.getElementById('kbDetect').textContent = '✅ HID';
+            document.getElementById('kbDetect').style.color = 'var(--accent)';
+            beep();
+          } else if (txt) {
+            document.getElementById('kbSourceLabel').textContent = '来源: 手动输入';
+            document.getElementById('kbDetect').textContent = '✋ 手动';
+            document.getElementById('kbDetect').style.color = 'var(--warning)';
+          }
+          document.getElementById('kbSpeedLabel').textContent = currentBurst.length >= 2 ? `速度: ${avg.toFixed(0)} ms/键` : '速度: --';
+          buf = txt; currentBurst = [];
+        }
+
+        function schedule() { clearTimeout(burstTmr); burstTmr = setTimeout(finalize, BURST_TMO); }
+
+        $disp.addEventListener('keydown', function (e) {
+          e.preventDefault();
+          const now = performance.now(), iv = lastTime ? now - lastTime : 0;
+          if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Tab', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Insert', 'Delete', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', 'NumLock', 'ScrollLock', 'Pause', 'ContextMenu'].includes(e.key)) return;
+          if (e.key === 'Enter') { finalize(); buf = ''; lastTime = 0; return; }
+          const ch = e.key.length === 1 ? e.key : `[${e.key}]`;
+          entries.push({ id: entries.length + 1, key: ch, keyName: e.key, code: e.code, keyCode: e.keyCode, modifiers: ['Shift', 'Ctrl', 'Alt', 'Meta'].filter(m => e.getModifierState(m)).join('+') || '--', interval: iv, source: isHID(iv) ? 'HID' : '手动', timestamp: new Date().toISOString().slice(11, 23) });
+          document.getElementById('kbLastKey').textContent = ch;
+          document.getElementById('kbLastCode').textContent = `${e.code} (${e.keyCode})`;
+          document.getElementById('kbLastIntv').textContent = iv ? `${iv.toFixed(1)} ms` : '--';
+          if (isHID(iv)) { document.getElementById('kbDetect').textContent = '⚡ HID'; document.getElementById('kbDetect').style.color = 'var(--accent)'; }
+          else { document.getElementById('kbDetect').textContent = iv ? '✋ 手动' : '--'; document.getElementById('kbDetect').style.color = iv ? 'var(--warning)' : 'var(--text-muted)'; }
+          currentBurst.push(e.key);
+          $text.textContent = currentBurst.join('');
+          $text.classList.remove('placeholder');
+          lastTime = now; schedule();
+        });
+
+        $disp.addEventListener('paste', function (e) {
+          e.preventDefault();
+          const txt = (e.clipboardData || window.clipboardData).getData('text');
+          if (!txt) return;
+          const now = performance.now(), iv = lastTime ? now - lastTime : 0;
+          entries.push({ id: entries.length + 1, key: txt, keyName: `[粘贴 ${txt.length} 字符]`, code: 'Paste', keyCode: '--', modifiers: '--', interval: iv, source: '粘贴', timestamp: new Date().toISOString().slice(11, 23) });
+          $text.textContent = txt; $text.classList.remove('placeholder');
+          document.getElementById('kbLastKey').textContent = `📋 ${txt.length}字`;
+          document.getElementById('kbLastCode').textContent = 'Paste';
+          document.getElementById('kbLastIntv').textContent = iv ? `${iv.toFixed(1)} ms` : '--';
+          document.getElementById('kbDetect').textContent = '📋 粘贴';
+          document.getElementById('kbDetect').style.color = 'var(--text-muted)';
+          document.getElementById('kbSourceLabel').textContent = '来源: 粘贴';
+          currentBurst = []; buf = txt; lastTime = now;
+        });
+
+        $disp.addEventListener('blur', () => { if (currentBurst.length) finalize(); });
+        $disp.addEventListener('focus', () => { document.getElementById('kbDot').className = 'dot-indicator on'; });
+
+        document.getElementById('kbClear').addEventListener('click', () => {
+          entries = []; buf = ''; currentBurst = []; lastTime = 0; clearTimeout(burstTmr);
+          $text.textContent = '点击此处开始捕获键盘 / 手台扫码输入…'; $text.classList.add('placeholder');
+          document.getElementById('kbLastKey').textContent = '--';
+          document.getElementById('kbLastCode').textContent = '--';
+          document.getElementById('kbLastIntv').textContent = '--';
+          document.getElementById('kbDetect').textContent = '--'; document.getElementById('kbDetect').style.color = 'var(--text-muted)';
+          document.getElementById('kbSourceLabel').textContent = '来源: --';
+          document.getElementById('kbSpeedLabel').textContent = '速度: --';
+        });
+
+        document.getElementById('kbExport').addEventListener('click', () => {
+          if (!entries.length) return alert('暂无数据');
+          const csv = '﻿#,按键,Key Code,Code,修饰键,间隔(ms),来源,时间戳\n' + entries.map(e => `"${e.id}","${e.keyName}","${e.keyCode}","${e.code}","${e.modifiers}","${e.interval}","${e.source}","${e.timestamp}"`).join('\n');
+          const b = new Blob([csv], { type: 'text/csv;charset=utf-8;' }), u = URL.createObjectURL(b), a = document.createElement('a');
+          a.href = u; a.download = `kb-log-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(u);
+        });
+
+        document.getElementById('kbThresh').addEventListener('input', function () { document.getElementById('kbThreshVal').textContent = this.value + 'ms'; });
+
+        $disp.focus();
+      })();
+
+      // ==================================================================
+      //  2. 编码器 HID 模块（鼠标移动捕获）
+      // ==================================================================
+      (function () {
+        let accX = 0, accY = 0, totalX = 0, totalY = 0;
+        let lastPoll = performance.now(), pollCount = 0, pollHz = 0;
+        let encLog = [], logId = 0;
+        let pointerLocked = false;
+
+        // Crosshair canvas
+        const chCanvas = document.getElementById('crosshairCanvas');
+        const chCtx = chCanvas.getContext('2d');
+        const chW = 200, chH = 200, chCx = 100, chCy = 100, chR = 90;
+
+        // Gauge canvases
+        const gxCanvas = document.getElementById('gaugeX'), gxCtx = gxCanvas.getContext('2d');
+        const gyCanvas = document.getElementById('gaugeY'), gyCtx = gyCanvas.getContext('2d');
+
+        function drawCrosshair(xNorm, yNorm) {
+          chCtx.clearRect(0, 0, chW, chH);
+          // grid
+          chCtx.strokeStyle = 'rgba(51,65,85,0.5)'; chCtx.lineWidth = 0.5;
+          chCtx.beginPath();
+          chCtx.moveTo(chCx, 0); chCtx.lineTo(chCx, chH);
+          chCtx.moveTo(0, chCy); chCtx.lineTo(chW, chCy);
+          chCtx.stroke();
+          // ring
+          chCtx.strokeStyle = 'var(--border)'; chCtx.lineWidth = 2;
+          chCtx.beginPath(); chCtx.arc(chCx, chCy, chR, 0, Math.PI * 2); chCtx.stroke();
+          // tick marks
+          for (let i = 0; i < 8; i++) {
+            const a = i * Math.PI / 4, r1 = chR - 8, r2 = chR;
+            chCtx.beginPath();
+            chCtx.moveTo(chCx + Math.cos(a) * r1, chCy + Math.sin(a) * r1);
+            chCtx.lineTo(chCx + Math.cos(a) * r2, chCy + Math.sin(a) * r2);
+            chCtx.stroke();
+          }
+          // crosshair dot
+          const px = chCx + xNorm * chR;
+          const py = chCy - yNorm * chR;
+          // glow
+          const glow = chCtx.createRadialGradient(px, py, 0, px, py, 12);
+          glow.addColorStop(0, 'rgba(56,189,248,0.8)');
+          glow.addColorStop(0.4, 'rgba(56,189,248,0.3)');
+          glow.addColorStop(1, 'rgba(56,189,248,0)');
+          chCtx.fillStyle = glow;
+          chCtx.beginPath(); chCtx.arc(px, py, 12, 0, Math.PI * 2); chCtx.fill();
+          // dot
+          chCtx.fillStyle = '#fff';
+          chCtx.beginPath(); chCtx.arc(px, py, 4, 0, Math.PI * 2); chCtx.fill();
+          // trail from center
+          chCtx.strokeStyle = 'rgba(255,255,255,0.3)'; chCtx.lineWidth = 1;
+          chCtx.beginPath(); chCtx.moveTo(chCx, chCy); chCtx.lineTo(px, py); chCtx.stroke();
+        }
+
+        function drawGauge(ctx, w, h, angleDeg, color) {
+          const cx = w / 2, cy = h / 2, r = w / 2 - 6;
+          ctx.clearRect(0, 0, w, h);
+          // bg arc
+          ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, 0);
+          ctx.strokeStyle = 'rgba(51,65,85,0.6)'; ctx.lineWidth = 5; ctx.stroke();
+          // angle arc
+          const a = ((angleDeg - 180) / 180) * Math.PI;
+          ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, Math.PI + a);
+          ctx.strokeStyle = color; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
+          // center dot
+          ctx.fillStyle = color; ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fill();
+          // needle
+          const nx = cx + Math.cos(Math.PI + a) * (r - 10), ny = cy + Math.sin(Math.PI + a) * (r - 10);
+          ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(nx, ny);
+          ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+        }
+
+        function clampNorm(v) { return Math.max(-1, Math.min(1, v)); }
+
+        drawCrosshair(0, 0);
+        drawGauge(gxCtx, 70, 70, 0, 'var(--x-color)');
+        drawGauge(gyCtx, 70, 70, 0, 'var(--y-color)');
+
+        function onMouseMove(e) {
+          const dx = e.movementX, dy = e.movementY;
+          if (!dx && !dy) return;
+
+          const now = performance.now();
+          const iv = now - lastPoll;
+
+          accX += dx; accY += dy;
+          totalX += Math.abs(dx); totalY += Math.abs(dy);
+
+          pollCount++;
+          if (now - lastPoll >= 1000) { pollHz = Math.round(pollCount / ((now - lastPoll) / 1000)); pollCount = 0; lastPoll = now; }
+
+          // Log
+          logId++;
+          encLog.push({ id: logId, dx, dy, iv, ts: new Date().toISOString().slice(11, 23) });
+          if (encLog.length > 200) encLog.shift();
+
+          // Normalize for crosshair (±200 range)
+          const xN = clampNorm(accX / 200), yN = clampNorm(accY / 200);
+          drawCrosshair(xN, yN);
+
+          // Gauge: map accumulated position to 0-360 degrees
+          const xDeg = (((accX % 720) + 720) % 720) / 2; // wrap every 720 steps to 360°
+          const yDeg = (((accY % 720) + 720) % 720) / 2;
+          drawGauge(gxCtx, 70, 70, xDeg, 'var(--x-color)');
+          drawGauge(gyCtx, 70, 70, yDeg, 'var(--y-color)');
+
+          // Update UI
+          document.getElementById('encXDelta').textContent = (dx > 0 ? '+' : '') + dx;
+          document.getElementById('encYDelta').textContent = (dy > 0 ? '+' : '') + dy;
+          document.getElementById('encPoll').textContent = pollHz;
+          document.getElementById('encAccX').textContent = accX;
+          document.getElementById('encAccY').textContent = accY;
+          document.getElementById('encTotalX').textContent = totalX;
+          document.getElementById('encTotalY').textContent = totalY;
+          document.getElementById('gaugeXVal').textContent = `${xDeg.toFixed(1)}°`;
+          document.getElementById('gaugeYVal').textContent = `${yDeg.toFixed(1)}°`;
+          document.getElementById('encDot').className = 'dot-indicator on';
+
+          // Render log
+          const tbody = document.getElementById('encLogBody');
+          const recent = encLog.slice(-50);
+          tbody.innerHTML = recent.reverse().map(e => `<tr><td>${e.id}</td><td style="color:var(--x-color);">${(e.dx > 0 ? '+' : '') + e.dx}</td><td style="color:var(--y-color);">${(e.dy > 0 ? '+' : '') + e.dy}</td><td>${e.iv ? e.iv.toFixed(1) : '--'}</td><td>${e.ts}</td></tr>`).join('');
+
+          // Dim indicator after 1s idle
+          clearTimeout(window._encIdleTmr);
+          window._encIdleTmr = setTimeout(() => { document.getElementById('encDot').className = 'dot-indicator off'; }, 1000);
+        }
+
+        document.addEventListener('mousemove', onMouseMove);
+
+        document.getElementById('encReset').addEventListener('click', () => {
+          accX = 0; accY = 0; drawCrosshair(0, 0);
+          drawGauge(gxCtx, 70, 70, 0, 'var(--x-color)');
+          drawGauge(gyCtx, 70, 70, 0, 'var(--y-color)');
+          document.getElementById('encAccX').textContent = '0';
+          document.getElementById('encAccY').textContent = '0';
+          document.getElementById('gaugeXVal').textContent = '0.0°';
+          document.getElementById('gaugeYVal').textContent = '0.0°';
+        });
+
+        document.getElementById('encLock').addEventListener('click', function () {
+          if (pointerLocked) {
+            document.exitPointerLock();
+          } else {
+            document.body.requestPointerLock();
+          }
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+          pointerLocked = !!document.pointerLockElement;
+          const btn = document.getElementById('encLock');
+          btn.textContent = pointerLocked ? '🔓 已锁定 (Esc 解锁)' : '🔒 锁定鼠标指针';
+          btn.classList.toggle('primary', pointerLocked);
+        });
+
+        document.getElementById('encClearLog').addEventListener('click', () => {
+          encLog = []; logId = 0;
+          document.getElementById('encLogBody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px;">移动手台旋钮以捕获编码器数据…</td></tr>';
+        });
+      })();
+
+
+      console.log('  手台 HID 检测已就绪');
+      console.log('  键盘 HID — 捕获手台扫码/手动输入');
+      console.log('  AS5600 双编码器 — 捕获鼠标 HID 移动');
+    })();
+  </script>
+</body>
+
+</html>
