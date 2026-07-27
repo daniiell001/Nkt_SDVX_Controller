@@ -51,7 +51,7 @@ const uint32_t LED_IDLE = 0x000000;
 const uint32_t LED_PRESS = 0xFF00FF;
 const uint32_t LED_STOP = 0xFF0000;
 
-// ---- 心跳间隔 (循环次数) ----
+// ---- 心跳间隔 (ms) ----
 const uint32_t HEARTBEAT_INTERVAL = 1000;
 
 // ============================================================
