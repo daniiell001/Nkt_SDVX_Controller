@@ -6,7 +6,7 @@
 #include <math.h>
 
 // ============================================================
-// 可配置参数
+// 用户可配置参数
 // ============================================================
 
 // ---- 鼠标灵敏度 ----
@@ -18,10 +18,10 @@ const bool INVERT_Y = false;
 // ---- 编码器死区 ----
 const int ENCODER_DEAD_ZONE = 1;
 const int DEAD_ZONE_SOFT_END = 3;
-const bool SOFT_DEAD_ZONE = true;
+const bool SOFT_DEAD_ZONE = false;
 
 // ---- 1€ 滤波器 ----
-const float ONE_EURO_FC_MIN = 5.0f;
+const float ONE_EURO_FC_MIN = 2.5f;
 const float ONE_EURO_BETA = 0.025f;
 const float ONE_EURO_FC_D = 1.0f;
 
@@ -32,10 +32,8 @@ const float POWER_CURVE = 1.12f;
 const int DIRECTION_DEBOUNCE_MS = 3;
 
 // ---- I2C 频率 (Hz) ----
-// RP2040 硬件 I2C 支持 100k / 400k / 1M
 const uint32_t I2C_FREQ = 400000;
 
-// ---- 主循环目标 (µs) — 1000µs = 1000Hz ----
 const uint32_t LOOP_PERIOD_US = 1000;
 
 // ---- 按钮去抖 (ms) ----
@@ -51,17 +49,8 @@ const uint32_t LED_IDLE = 0x000000;
 const uint32_t LED_PRESS = 0xFF00FF;
 const uint32_t LED_STOP = 0xFF0000;
 
-// ---- 心跳间隔 (ms) ----
 const uint32_t HEARTBEAT_INTERVAL = 1000;
 
-// ============================================================
-// 引脚定义
-// ============================================================
-
-// I2C0: GP4=SDA, GP5=SCL (Wire)  — 编码器 X
-// I2C1: GP6=SDA, GP7=SCL (Wire1) — 编码器 Y
-
-// 按钮
 const int BTN_PINS[] = {0, 1, 2, 3, 8, 9, 10};
 const int BTN_COUNT = sizeof(BTN_PINS) / sizeof(BTN_PINS[0]);
 const char BTN_KEYS[] = {'d', 'f', 'j', 'k', 'c', 'm', 'y'};
@@ -89,6 +78,7 @@ struct PipelineState
 };
 static PipelineState g_pipe_x, g_pipe_y;
 
+// ---- 按钮 ----
 struct ButtonState
 {
     int pin;
@@ -99,12 +89,12 @@ struct ButtonState
 };
 static ButtonState g_btns[BTN_COUNT];
 
+// ---- LED ----
 static Adafruit_NeoPixel g_led(NEO_NUM, NEO_PIN, NEO_GRB + NEO_KHZ800);
 static uint32_t g_led_color = LED_IDLE;
 static uint32_t g_led_off_ms = 0;
 static bool g_led_on = false;
 
-// I2C
 const uint8_t AS5600_ADDR = 0x36;
 const uint8_t AS5600_REG_RAW = 0x0C;
 const uint8_t AS5600_REG_STATUS = 0x0B;
@@ -167,7 +157,7 @@ static void read_both_encoders(uint16_t &out_x, uint16_t &out_y)
 
     Wire.beginTransmission(AS5600_ADDR);
     Wire.write(AS5600_REG_RAW);
-    Wire.endTransmission(false); // RESTART
+    Wire.endTransmission(false);
 
     Wire1.beginTransmission(AS5600_ADDR);
     Wire1.write(AS5600_REG_RAW);
@@ -223,8 +213,10 @@ static float apply_one_euro(PipelineState *s, float raw, uint64_t now_us)
     float speed = (raw - s->prev_raw) / dt;
     s->dxhat = alpha_d * speed + (1.0f - alpha_d) * s->dxhat;
 
+    // 自适应截止频率
     float fc = ONE_EURO_FC_MIN + ONE_EURO_BETA * fabsf(s->dxhat);
 
+    // 平滑信号
     float alpha = dt / (dt + 1.0f / (2.0f * M_PI_f * fc));
     s->xhat = alpha * raw + (1.0f - alpha) * s->xhat;
 
@@ -267,8 +259,6 @@ static float apply_direction_debounce(PipelineState *s, float dx,
 static float run_pipeline(PipelineState *s, float dx, uint64_t now_us)
 {
     dx = apply_dead_zone(dx);
-    if (dx == 0.0f)
-        return 0.0f;
     dx = apply_one_euro(s, dx, now_us);
     dx = apply_power_curve(dx);
     dx = apply_direction_debounce(s, dx, now_us);
@@ -312,7 +302,7 @@ static void buttons_poll()
     for (int i = 0; i < BTN_COUNT; i++)
     {
         ButtonState *b = &g_btns[i];
-        bool raw = !digitalRead(b->pin); // LOW = pressed (pullup)
+        bool raw = !digitalRead(b->pin);
 
         if (raw == b->pressed)
         {
@@ -376,12 +366,14 @@ void setup()
     delay(500);
 
     Serial.println(F("\n========================================"));
-    Serial.println(F("           SDVX Controller    "));
-    Serial.println(F("      [C: Dual HW I2C @ 1000Hz]"));
+    Serial.println(F("  SDVX Controller — RP2040 + AS5600"));
+    Serial.println(F("  [C: Dual HW I2C @ 1000Hz]"));
     Serial.println(F("========================================"));
 
+    // ---- LED ----
     led_init();
 
+    // ---- I2C + 编码器 ----
     Serial.println(F("\n[I2C] Initializing dual I2C buses..."));
     Wire.setSDA(4);
     Wire.setSCL(5);
@@ -396,12 +388,14 @@ void setup()
         Serial.println(F("  WARNING: One or both encoders may not work."));
     }
 
+    // ---- 按钮 ----
     Serial.println(F("\n[Buttons]"));
     buttons_init();
     Serial.print(F("  "));
     Serial.print(BTN_COUNT);
     Serial.println(F(" buttons"));
 
+    // ---- USB HID ----
     Serial.println(F("\n[HID] Starting USB HID..."));
     Mouse.begin();
     Keyboard.begin();
